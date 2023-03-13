@@ -1,13 +1,19 @@
 // use addMenuItem from main script
-addToolsMenuItem('Поиск архитектуры', SearchArchitecturesHandler);
+addToolsMenuItem('Поиск архитектуры' + ' (Ctrl + F9)', SearchArchitecturesHandler, 120, true);
 var _searchArchitecturesViewerModalInitialized = false;
 const UNDEFINED_TEXT = '[undefined text]',
     MAXLEVEL = 7,
-    ALLLEVELS = 0;
+    ALLLEVELS = 0,
+    DEBUG = false;
 var searchString = '',
     searchLevel = 1,
     destroyableOnlyShow = false,
     improvableOnlyShow = false;
+var buildingTypeInfoPanelMap = {
+    'decoration': 'cDecorationInfoPanel',
+    'minimal': 'cMinimalInfoPanel',
+    'enemy': 'cEnemyBuildingInfoPanel',
+};
 
 function SearchArchitecturesHandler(event) {
     $('div[role="dialog"]:not(#searchArchitecturesModal):visible').modal('hide');
@@ -101,7 +107,8 @@ function _getArchitecturesList() {
     var buildingList = {};
     swmmo.application.mGameInterface.mCurrentPlayerZone.mStreetDataMap.mBuildingContainer.forEach(function (item) {
         if (item.isGarrison()) { return; } // гарнизон
-        if (item.IsDestroyableMountain() != destroyableOnlyShow) { return; }
+        var isDestroyableMountain = item.IsDestroyableMountain();
+        if (isDestroyableMountain != destroyableOnlyShow) { return; }
         var level = item.GetUIUpgradeLevel();
         if (!(searchLevel == MAXLEVEL && level >= MAXLEVEL || searchLevel == level || searchLevel == ALLLEVELS)) { return; }
         var grid = item.GetGrid();
@@ -111,12 +118,12 @@ function _getArchitecturesList() {
                 '<img', '<img id="buildPOS_' + grid + '"'
             ).replace('style="', 'style="cursor: pointer;');
         var name = item.GetBuildingName_string();
-        if(
+        if (
             name.toUpperCase().indexOf('EW_') != -1 ||
             name.toUpperCase().indexOf('DECORATION_MOUNTAIN_PEAK') != -1 ||
             name.toUpperCase().indexOf('BANDITS') != -1
         ) { return; }
-        var isUpgradeAllowed = item.IsUpgradeAllowed(true) && item.IsInstantUpgradeAllowed(true);
+        var isUpgradeAllowed = item.IsUpgradeAllowed(true) && !isDestroyableMountain && !_findBuildingType(item, ['decoration', 'minimal', 'enemy']);
         if (improvableOnlyShow && !isUpgradeAllowed) { return; }
         var locName = loca.GetText('BUI', name);
         if (locName.indexOf(UNDEFINED_TEXT) >= 0) {
@@ -154,6 +161,18 @@ function _buildingViewerGoTo(g, b) {
     catch (e) { }
 }
 
+function _findBuildingType(b, bTypes) {
+    var panelClass = globalFlash.gui.GetInfoPanel(b.GetBuildingName_string());
+    var className = window.runtime.flash.utils.getQualifiedClassName(panelClass);
+    var found = false;
+    for (t in buildingTypeInfoPanelMap) {
+        if (bTypes.indexOf(t) >= 0){
+            found = found || (className == 'GUI.GAME::{0}'.format(buildingTypeInfoPanelMap[t]));
+        }
+    }
+    return found;
+}
+
 function _searchArchitecturesModal(buildingList) {
     var out = '<div class="container-fluid">';
     try {
@@ -164,26 +183,26 @@ function _searchArchitecturesModal(buildingList) {
                 prefix = '&#9500',
                 counter = 1;
             out += createTableRow([
-                [12, '<b>' + firstItem.locName + '</b>' /*+ ' <sup>' + firstItem.name + '</sup>'*/],
+                [12, '<b>' + firstItem.locName + '</b>' + (DEBUG ? ' <sup>' + firstItem.name + '</sup>' : '')],
             ]);
-            buildingList[key].sort(compareArchitecturesByLevel).forEach(function (item) {
+            buildingList[key].sort(_compareArchitecturesByLevel).forEach(function (item) {
                 if (counter == buildingCount) {
                     prefix = '&#9492;';
                 }
                 itemStatus = '';
                 if (!item.isWorking) {
                     itemStatus = 'Остановлен';
-                } 
+                }
                 if (item.isUpgradeInProgress) {
                     itemStatus = 'Улучшается'
                 }
                 out += createTableRow([
-                    [5, prefix + (itemStatus == '' ? '' : ' <span style="color:LightGray;font-style:italic;">') + 
-                    ' <sup>' + item.level + '</sup>&thinsp;' + item.locName + (itemStatus == '' ? '' : '</span>')
+                    [5, prefix + (itemStatus == '' ? '' : ' <span style="color:LightGray;font-style:italic;">') +
+                        ' <sup>' + item.level + '</sup>&thinsp;' + item.locName + (itemStatus == '' ? '' : '</span>')
                     ],
                     [3, (itemStatus == '' ? ' ' : ' <span style="color:LightGray;font-style:italic;">') +
                         '<small>' + item.buff + '</small>' + (itemStatus == '' ? '' : '</span>')],
-                    [1, item.isUpgradeAllowed?'&#11014;':''], 
+                    [1, item.isUpgradeAllowed ? '&#11014;' : ''],
                     [2, '<span style="color:LightGray;font-style:italic;"><small>' + itemStatus + '</small></span>'],
                     [1, item.goto]
                 ]);
@@ -197,7 +216,7 @@ function _searchArchitecturesModal(buildingList) {
     return out + '</div>';
 }
 
-function compareArchitecturesByLevel(a, b) {
+function _compareArchitecturesByLevel(a, b) {
     if (a.level < b.level) return -1;
     if (a.level > b.level) return 1;
     return 0;
